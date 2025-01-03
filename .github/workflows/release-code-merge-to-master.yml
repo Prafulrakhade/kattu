@@ -3,11 +3,11 @@ name: Merge to Default Branch
 on:
   workflow_call:
     inputs:
-      branch_to_release:
+      BRANCH_TO_RELEASE:
         description: "The branch to release and merge into the default branch"
         required: true
         type: string
-      repository:
+      REPOSITORY:
         description: "The repository name (owner/repo format)"
         required: true
         type: string
@@ -24,7 +24,7 @@ jobs:
         run: |
           default_branch=$(curl -s -H "Authorization: Bearer $ACTION_PAT" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.repository }}" | jq -r '.default_branch')
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "default-branch=$default_branch" >> $GITHUB_ENV
 
       - name: Unlock Default Branch for Force Push
@@ -39,21 +39,21 @@ jobs:
               "restrictions": null,
               "allow_force_pushes": true
             }' \
-            "https://api.github.com/repos/${{ inputs.repository }}/branches/${{ env.default-branch }}/protection"
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.repository }}
+          REPOSITORY: ${{ inputs.REPOSITORY }}
 
       - name: Merge Release Branch to Default Branch
         run: |
           git fetch --all
-          git checkout ${{ inputs.branch_to_release }}
-          git pull origin ${{ inputs.branch_to_release }}
+          git checkout ${{ inputs.BRANCH_TO_RELEASE }}
+          git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
           git checkout ${{ env.default-branch }}
           git pull origin ${{ env.default-branch }}
-          git reset --hard origin/${{ inputs.branch_to_release }}
+          git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
           git push -f origin ${{ env.default-branch }}
 
       - name: Update Badges in README (If Applicable)
@@ -78,4 +78,4 @@ jobs:
               "restrictions": null,
               "allow_force_pushes": false
             }' \
-            "https://api.github.com/repos/${{ inputs.repository }}/branches/${{ env.default-branch }}/protection"
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
