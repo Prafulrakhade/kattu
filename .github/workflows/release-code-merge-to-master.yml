@@ -1,4 +1,4 @@
-name: Merge to Default Branch
+name: Merge to Master
 
 on:
   workflow_call:
@@ -17,69 +17,60 @@ on:
         type: string
 
 jobs:
-  parse-json:
+  merge:
     runs-on: ${{ inputs.runs-on }}
-    env:
-      ACTION_PAT: ${{ secrets.ACTION_PAT }}
-
     steps:
-      - name: Determine Default Branch
-        id: get-default-branch
-        run: |
-          default_branch=$(curl -s -H "Authorization: Bearer $ACTION_PAT" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
-          echo "default-branch=$default_branch" >> $GITHUB_ENV
-
-      - name: Unlock Default Branch for Force Push
-        run: |
-          curl -X PUT \
-            -H "Authorization: Bearer $ACTION_PAT" \
-            -H "Accept: application/vnd.github+json" \
-            -d '{
-              "required_status_checks": null,
-              "enforce_admins": true,
-              "required_pull_request_reviews": null,
-              "restrictions": null,
-              "allow_force_pushes": true
-            }' \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
-
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          REPOSITORY: ${{ inputs.REPOSITORY }}
+          repository: ${{ inputs.REPOSITORY }}
+          ref: ${{ inputs.BRANCH_TO_RELEASE }}
 
-      - name: Merge Release Branch to Default Branch
+      - name: Temporarily Unlock Branch Protection (if enabled)
+        id: unlock_branch_protection
         run: |
-          git fetch --all
-          git checkout ${{ inputs.BRANCH_TO_RELEASE }}
-          git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
-          git checkout ${{ env.default-branch }}
-          git pull origin ${{ env.default-branch }}
-          git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
-          git push -f origin ${{ env.default-branch }}
+          # Check if branch protection is enabled
+          protection_status=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default_branch }}/protection" | jq -r '.required_status_checks')
 
-      - name: Update Badges in README (If Applicable)
-        run: |
-          if grep -q "badge.svg?branch=" README.md; then
-            sed -i "s/badge.svg?branch=[^)]*/badge.svg?branch=${{ env.default-branch }}/g" README.md
-            sed -i "s/push_trigger.yml/push-trigger.yml/g" README.md
-            git add README.md
-            git commit -m "Update README badges to reflect default branch"
-            git push origin ${{ env.default-branch }}
+          if [[ -n "$protection_status" ]]; then
+            echo "Branch protection is enabled. Temporarily unlocking..."
+            curl -X PUT \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              -d '{
+                "required_status_checks": null,
+                "enforce_admins": true,
+                "required_pull_request_reviews": null,
+                "restrictions": null,
+                "allow_force_pushes": true
+              }' \
+              "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default_branch }}/protection"
           fi
 
-      - name: Relock Default Branch
+      - name: Merge to Master
         run: |
-          curl -X PUT \
-            -H "Authorization: Bearer $ACTION_PAT" \
-            -H "Accept: application/vnd.github+json" \
-            -d '{
-              "required_status_checks": null,
-              "enforce_admins": true,
-              "required_pull_request_reviews": null,
-              "restrictions": null,
-              "allow_force_pushes": false
-            }' \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
+          git checkout master
+          git pull origin master
+          git merge ${{ inputs.BRANCH_TO_RELEASE }}
+          if [ $? -ne 0 ]; then
+            echo "Merge conflict encountered."
+            exit 1
+          fi
+          git push origin master || { echo "Failed to push to origin/master"; exit 1; }
+
+      - name: Restore Branch Protection (if previously enabled)
+        run: |
+          if [[ -n "$protection_status" ]]; then
+            echo "Restoring original branch protection rules..."
+            curl -X PUT \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              -d "$protection_status" \ 
+              "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default_branch }}/protection"
+          fi
+
+      - name: Log Success
+        run: |
+          echo "Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into master in ${{ inputs.REPOSITORY }}."
