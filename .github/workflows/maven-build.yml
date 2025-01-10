@@ -71,9 +71,6 @@ jobs:
 
     - name: Build check for MOSIP License
       run: |
-        pwd 
-        ls
-        echo ${{ inputs.SERVICE_LOCATION }}
         cd ${{ inputs.SERVICE_LOCATION }} && xmlstarlet sel -N s="http://maven.apache.org/POM/4.0.0" -t -v "//s:project/s:licenses[1]/s:license/s:name" -nl pom.xml | grep -q "MPL 2.0"
 
     - name: Build check for developer
