@@ -114,8 +114,13 @@ jobs:
     - name: Ready the springboot non-executable artifacts
       if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS != '' }}  # Only run if MAVEN_NON_EXEC_ARTIFACTS is set (optional)
       run: |
+        echo "Looking for non-executable artifacts in ${{ inputs.SERVICE_LOCATION }}/target"
+        ls -la ${{ inputs.SERVICE_LOCATION }}/target
+        
         # Find all non-executable artifacts in the target directory (not ending in .jar and not executable)
-        non_executable_artifacts=$(find ${{ inputs.SERVICE_LOCATION }}/target -type f ! -executable)
+        non_executable_artifacts=$(find ${{ inputs.SERVICE_LOCATION }}/target -type f ! -executable ! -name '*.jar')
+
+        echo "Found non-executable artifacts: $non_executable_artifacts"
     
         # If non-executable artifacts are found, add them to the release zip
         if [ -n "$non_executable_artifacts" ]; then
