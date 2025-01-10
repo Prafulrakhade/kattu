@@ -117,16 +117,8 @@ jobs:
     - name: Ready the springboot non-executable artifacts
       if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}
       run: |
-          IFS=',' read -ra ARTIFACTS <<< "${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}"
-          for ARTIFACT in "${ARTIFACTS[@]}"; do
-            artifact_path="*/target/${ARTIFACT}"
-            if ls $artifact_path 1> /dev/null 2>&1; then
-              echo "Adding non-executable ARTIFACT: $artifact_path to release zip"
-              zip -r ${{ inputs.BUILD_ARTIFACT }}.zip $artifact_path
-            else
-              echo "Warning: ARTIFACT $ARTIFACT not found"
-            fi
-          done
+        # Find non-executable JAR files in the target directory and add them to the zip
+        find ${{ inputs.SERVICE_LOCATION }}/target -name "*.jar" ! -executable -exec zip ${{ inputs.BUILD_ARTIFACT }}.zip {} +
      
     - name: Upload the springboot jars
       if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
