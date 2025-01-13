@@ -112,23 +112,22 @@ jobs:
         find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar'  -type f  -executable -exec zip ${{ inputs.BUILD_ARTIFACT }}.zip {} +
 
     - name: Ready the springboot non-executable artifacts
-      if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS != '' }}  # Only run if MAVEN_NON_EXEC_ARTIFACTS is set (optional)
+      if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}
       run: |
-        echo "Looking for non-executable artifacts in ${{ inputs.SERVICE_LOCATION }}/target"
-        ls -la ${{ inputs.SERVICE_LOCATION }}/target
-        
-        # Find all non-executable artifacts in the target directory (not ending in .jar and not executable)
-        non_executable_artifacts=$(find ${{ inputs.SERVICE_LOCATION }}/target -type f ! -executable ! -name '*.jar')
-
-        echo "Found non-executable artifacts: $non_executable_artifacts"
-    
-        # If non-executable artifacts are found, add them to the release zip
-        if [ -n "$non_executable_artifacts" ]; then
-        echo "Adding non-executable artifacts to release zip"
-        zip -r ${{ inputs.BUILD_ARTIFACT }}.zip $non_executable_artifacts
-        else
-        echo "No non-executable artifacts found"
-        fi
+          IFS=',' read -ra ARTIFACTS <<< "${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}"
+          for ARTIFACT in "${ARTIFACTS[@]}"; do
+          # Match *.jar files in the target directory
+          artifact_path="*/target/${ARTIFACT}.jar"
+          # If any matching files exist
+          for file in $artifact_path; do
+            if [ -f "$file" ]; then
+              echo "Adding non-executable ARTIFACT: $file to release zip"
+              zip -r ${{ inputs.BUILD_ARTIFACT }}.zip "$file"
+            else
+              echo "Warning: ARTIFACT $file not found"
+            fi
+            done
+          done
      
     - name: Upload the springboot jars
       if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
