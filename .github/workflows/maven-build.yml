@@ -117,7 +117,7 @@ jobs:
           IFS=',' read -ra ARTIFACTS <<< "${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}"
           for ARTIFACT in "${ARTIFACTS[@]}"; do
           # Match *.jar files in the target directory
-          artifact_path="*/target/${ARTIFACT}.jar"
+          artifact_path="*/target/${ARTIFACT}*.jar"
           # If any matching files exist
           for file in $artifact_path; do
             if [ -f "$file" ]; then
