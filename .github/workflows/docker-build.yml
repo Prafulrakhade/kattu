@@ -148,7 +148,7 @@ jobs:
 
   build-docker-warning:
     runs-on: ubuntu-latest
-    needs: build-dockers  # This ensures that the 'check-dockerfile' job runs after 'build-dockers' is completed
+    #needs: build-dockers  # This ensures that the 'check-dockerfile' job runs after 'build-dockers' is completed
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
