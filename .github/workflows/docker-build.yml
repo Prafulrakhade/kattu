@@ -131,7 +131,6 @@ jobs:
 
   build-docker-warning:
     runs-on: ubuntu-latest
-    #needs: build-dockers  # This ensures that the 'check-dockerfile' job runs after 'build-dockers' is completed
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -146,21 +145,22 @@ jobs:
           
           # Check if Dockerfile exists
           if [ ! -f Dockerfile ]; then
-            echo "Warning: Dockerfile not found."
+            echo "Error: Dockerfile not found."
+            exit 1
           else
             # Search for forbidden base images or tags
             forbidden_found=false
             if grep -E "FROM (mosipdev|mosipqa)/" Dockerfile; then
-              echo "Warning: Dockerfile contains forbidden base image from 'mosipdev' or 'mosipqa' organization."
+              echo "Error: Dockerfile contains forbidden base image from 'mosipdev' or 'mosipqa' organization."
               forbidden_found=true
             fi
             if grep -E "FROM .*:(latest|develop)" Dockerfile; then
-              echo "Warning: Dockerfile contains forbidden base image tag 'latest' or 'develop'."
+              echo "Error: Dockerfile contains forbidden base image tag 'latest' or 'develop'."
               forbidden_found=true
-              exit 1
             fi
             if [ "$forbidden_found" = true ]; then
-              echo "Warning: Dockerfile contains forbidden base images or tags."
+              echo "Error: Dockerfile contains forbidden base images or tags."
+              exit 1
             else
               echo "Dockerfile check passed: No forbidden organizations or tags found."
             fi
