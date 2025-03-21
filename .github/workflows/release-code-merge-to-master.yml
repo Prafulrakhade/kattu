@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: Platform to execute on
+        description: "Platform to execute on"
         type: string
         default: ubuntu-latest
       BRANCH_TO_RELEASE:
@@ -20,66 +20,75 @@ on:
         required: true
 
 jobs:
-  code-to-master:
+  merge-to-master:
     runs-on: ${{ inputs.runs-on }}
     steps:
+
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.REPOSITORY }}
           ref: ${{ inputs.BRANCH_TO_RELEASE }}
 
-      - name: 🔍 Determine Default Branch
+      - name: 🔍 Get Default Branch
         id: get-default-branch
         run: |
           DEFAULT_BRANCH=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
-
           echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
-          echo "✅ Default branch is: $DEFAULT_BRANCH"
 
       - name: 🔓 Unlock Branch Protection
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"required_status_checks": null, "restrictions": null, "allow_force_pushes": true, "enforce_admins": false}' \
+            -d '{
+              "required_status_checks": null,
+              "restrictions": null,
+              "allow_force_pushes": true,
+              "required_pull_request_reviews": null
+            }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
-      - name: 🛠 Configure Git
+      - name: 🔧 Configure Git
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
-          git remote set-url origin https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}
+          git remote set-url origin https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
 
-      - name: 🚀 Merge and Force Push to Default Branch
+      - name: 🔄 Merge Release Branch to Default Branch
         run: |
           git fetch --all
           git checkout ${{ inputs.BRANCH_TO_RELEASE }}
           git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
-          git checkout ${{ env.DEFAULT_BRANCH }}
-          git pull origin ${{ env.DEFAULT_BRANCH }}
+          git checkout $DEFAULT_BRANCH
+          git pull origin $DEFAULT_BRANCH
           git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
 
-          # Update README Badges if needed
+          # Update README Badges
           if grep -q "badge.svg?branch=" README.md; then
-            sed -i "s/badge.svg?branch=[^)]*/badge.svg?branch=${{ env.DEFAULT_BRANCH }}/g" README.md
+            sed -i "s/badge.svg?branch=[^)]*/badge.svg?branch=$DEFAULT_BRANCH/g" README.md
             git add README.md
-            git commit -m "🔄 Update README badges to reflect ${env.DEFAULT_BRANCH} branch"
+            git commit -m "Update README badges to reflect $DEFAULT_BRANCH"
           fi
 
-          # Force Push
-          git push -f https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }} HEAD:${{ env.DEFAULT_BRANCH }}
+      - name: 🚀 Force Push to Default Branch
+        run: |
+          git push -f origin $DEFAULT_BRANCH
+        env:
+          DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
 
       - name: 🔒 Restore Branch Protection
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"allow_force_pushes": false, "enforce_admins": true}' \
+            -d '{
+              "allow_force_pushes": false
+            }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
       - name: ✅ Log Success
         run: |
-          echo "🎉 Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into ${{ env.DEFAULT_BRANCH }} in ${{ inputs.REPOSITORY }}."
+          echo "Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into $DEFAULT_BRANCH in ${{ inputs.REPOSITORY }}."
