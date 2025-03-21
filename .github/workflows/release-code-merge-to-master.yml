@@ -1,83 +1,70 @@
-name: Merge to Master/Main
+name: Force Merge to Default Branch
 
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
-      BRANCH_TO_RELEASE:
-        description: "The branch to release and merge into the default branch"
+      RELEASE_BRANCH:
+        description: 'Branch to merge into default branch'
         required: true
-        type: string
-      REPOSITORY:
-        description: "The repository name (owner/repo format)"
-        required: true
-        type: string
-    secrets:
-      ACTION_PAT:
-        required: true
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: write
+  repository-projects: write
 
 jobs:
-  merge-to-master:
+  force-merge:
     runs-on: ubuntu-latest
     steps:
-
-      - name: 📥 Checkout Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.REPOSITORY }}
-          ref: ${{ inputs.BRANCH_TO_RELEASE }}
+          fetch-depth: 0
 
-      - name: 🔍 Get Default Branch
+      - name: Get Default Branch Name
         id: get-default-branch
         run: |
-          DEFAULT_BRANCH=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
+          DEFAULT_BRANCH=$(git remote show origin | awk '/HEAD branch/ {print $NF}')
           echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
 
-      - name: 🔓 Unlock Branch Protection
+      - name: Save Existing Branch Protection Rules
+        run: |
+          PROTECTION=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
+          echo "PROTECTION_RULES=$(echo $PROTECTION | base64 -w 0)" >> $GITHUB_ENV
+
+      - name: Unlock and Allow Force Push
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -d '{
               "required_status_checks": null,
+              "enforce_admins": false,
+              "required_pull_request_reviews": null,
               "restrictions": null,
-              "allow_force_pushes": true,
-              "required_pull_request_reviews": null
+              "allow_force_pushes": true
             }' \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
+            "https://api.github.com/repos/${{ github.repository }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
-      - name: 🔧 Configure Git
+      - name: Perform Force Push to Default Branch
         run: |
-          git config --global user.name "${{ github.actor }}"
-          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
-
-      - name: 🔄 Merge Release Branch to Default Branch
-        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
           git fetch --all
-          git checkout ${{ inputs.BRANCH_TO_RELEASE }}
-          git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
+          git checkout ${{ inputs.RELEASE_BRANCH }}
+          git pull origin ${{ inputs.RELEASE_BRANCH }}
           git checkout $DEFAULT_BRANCH
           git pull origin $DEFAULT_BRANCH
-          git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
+          git reset --hard origin/${{ inputs.RELEASE_BRANCH }}
+          git push -f https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ github.repository }}.git HEAD:$DEFAULT_BRANCH
 
-      - name: 🚀 Force Push to Default Branch
-        run: |
-          git push -f https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git HEAD:$DEFAULT_BRANCH
-        env:
-          DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
-
-      - name: 🔒 Restore Branch Protection
+      - name: Restore Branch Protection Rules
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{
-              "allow_force_pushes": false
-            }' \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
-
-      - name: ✅ Log Success
-        run: |
-          echo "Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into $DEFAULT_BRANCH in ${{ inputs.REPOSITORY }}."
+            --data-binary @<(echo $PROTECTION_RULES | base64 -d) \
+            "https://api.github.com/repos/${{ github.repository }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
