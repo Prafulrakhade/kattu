@@ -45,9 +45,14 @@ jobs:
             -d '{
               "enforce_admins": false,
               "required_status_checks": null,
-              "required_pull_request_reviews": null,
+              "required_pull_request_reviews": {
+                "dismiss_stale_reviews": false,
+                "require_code_owner_reviews": false,
+                "required_approving_review_count": 0
+              },
               "restrictions": null,
-              "allow_force_pushes": true
+              "allow_force_pushes": true,
+              "allow_deletions": false
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
           
