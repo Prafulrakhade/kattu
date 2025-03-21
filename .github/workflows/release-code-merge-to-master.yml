@@ -37,24 +37,24 @@ jobs:
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "default-branch=$default_branch" >> $GITHUB_ENV
 
-      - name: 🔍 Fetch Current Branch Protection Rules
+      - name: 🔍 Backup Current Branch Protection Rules
         run: |
           echo "Fetching existing branch protection settings..."
           curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection" > protection_backup.json
+          
+          echo "Saved current protection settings."
 
-          echo "Saved current protection settings to protection_backup.json"
-
-      - name: 🔓 Enable Force Push for Master
+      - name: 🔓 Unlock Force Push & Unprotect Branch
         run: |
-          echo "Temporarily enabling force push..."
+          echo "Temporarily disabling branch lock & enabling force push..."
           curl -X PUT -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d "$(jq '.allow_force_pushes.enabled = true' protection_backup.json)" \
+            -d '{"allow_force_pushes": true, "lock_branch": false, "required_status_checks": null, "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null}' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
-      - name: Configure Git
+      - name: Configure Git with PAT
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
@@ -79,9 +79,9 @@ jobs:
           # Push changes
           git push -f origin ${{ env.default-branch }}
 
-      - name: 🔒 Restore Original Branch Protection Rules
+      - name: 🔒 Restore Original Branch Protection & Lock It Again
         run: |
-          echo "Restoring original branch protection settings..."
+          echo "Restoring original branch protection settings & locking branch..."
           curl -X PUT -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -d @protection_backup.json \
