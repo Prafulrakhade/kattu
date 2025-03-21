@@ -37,7 +37,7 @@ jobs:
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "default-branch=$default_branch" >> $GITHUB_ENV
 
-      - name: **Unlock Branch Protection for Master**
+      - name: Unlock Branch Protection for Master
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
@@ -80,7 +80,7 @@ jobs:
           # Force Push Changes
           git push -f origin ${{ env.default-branch }}
 
-      - name: **Restore Branch Protection**
+      - name: Restore Branch Protection
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
