@@ -4,15 +4,12 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: Platform to execute on
         type: string
         default: ubuntu-latest
       BRANCH_TO_RELEASE:
-        description: "The branch to release and merge into the default branch"
         required: true
         type: string
       REPOSITORY:
-        description: "The repository name (owner/repo format)"
         required: true
         type: string
     secrets:
@@ -42,22 +39,27 @@ jobs:
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"required_status_checks": null, "restrictions": null, "allow_force_pushes": true, "enforce_admins": false, "required_pull_request_reviews": null}' \
+            -d '{"required_status_checks": null, "restrictions": null, "allow_force_pushes": true, "enforce_admins": false, "required_pull_request_reviews": null, "lock_branch": false}' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
+
+      - name: 🔍 Verify Force Push Enabled
+        run: |
+          protection_status=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection" | jq -r '.allow_force_pushes.enabled')
+
+          echo "Force Push Status: $protection_status"
+          
+          if [[ "$protection_status" != "true" ]]; then
+            echo "🚨 Force push is still disabled! Exiting..."
+            exit 1
+          fi
 
       - name: ✅ Configure Git Authentication
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
-
-          # Set remote URL with PAT authentication
-          git remote set-url origin https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}
-
-          # Verify authentication works
-          if ! git ls-remote origin &> /dev/null; then
-            echo "🚨 Git authentication failed! Check ACTION_PAT permissions."
-            exit 1
-          fi
+          git remote set-url origin https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
 
       - name: 🚀 Merge Release Branch to Master
         run: |
@@ -77,14 +79,14 @@ jobs:
 
       - name: 🔥 Force Push to Master
         run: |
-          git push -f https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git HEAD:${{ env.default-branch }}
+          git push -f https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }} HEAD:${{ env.default-branch }}
 
       - name: 🔒 Restore Branch Protection
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"allow_force_pushes": false}' \
+            -d '{"allow_force_pushes": false, "lock_branch": true}' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
       - name: 🎉 Log Success
