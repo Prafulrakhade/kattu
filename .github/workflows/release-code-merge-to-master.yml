@@ -20,10 +20,9 @@ on:
         required: true
 
 jobs:
-  merge-to-master:
+  code-to-master:
     runs-on: ${{ inputs.runs-on }}
     steps:
-
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -38,22 +37,21 @@ jobs:
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "default-branch=$default_branch" >> $GITHUB_ENV
 
-      - name: Backup Current Branch Protection Rules
-        id: backup-protection
+      - name: 🔍 Fetch Current Branch Protection Rules
         run: |
+          echo "Fetching existing branch protection settings..."
           curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection" > protection.json
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection" > protection_backup.json
 
-          cat protection.json  # Debugging
-          echo "PROTECTION_RULES=$(jq -c . protection.json)" >> $GITHUB_ENV
+          echo "Saved current protection settings to protection_backup.json"
 
-      - name: Unlock Branch Protection for Master
+      - name: 🔓 Enable Force Push for Master
         run: |
-          curl -X PUT \
-            -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+          echo "Temporarily enabling force push..."
+          curl -X PUT -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"required_status_checks": null, "restrictions": null, "allow_force_pushes": true}' \
+            -d "$(jq '.allow_force_pushes.enabled = true' protection_backup.json)" \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
       - name: Configure Git
@@ -78,17 +76,15 @@ jobs:
             git commit -m "Update README badges to reflect master branch"
           fi
 
-          # Force Push Changes
+          # Push changes
           git push -f origin ${{ env.default-branch }}
 
-      - name: Restore Original Branch Protection
+      - name: 🔒 Restore Original Branch Protection Rules
         run: |
-          echo '${{ env.PROTECTION_RULES }}' | jq '.' > restored_protection.json
-
-          curl -X PUT \
-            -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+          echo "Restoring original branch protection settings..."
+          curl -X PUT -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            --data @restored_protection.json \
+            -d @protection_backup.json \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
       - name: Log Success
