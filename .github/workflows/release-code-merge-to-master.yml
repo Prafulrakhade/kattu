@@ -19,10 +19,6 @@ on:
       ACTION_PAT:
         required: true
 
-permissions:
-  contents: write
-  actions: read
-
 jobs:
   code-to-master:
     runs-on: ${{ inputs.runs-on }}
@@ -32,7 +28,6 @@ jobs:
         with:
           repository: ${{ inputs.REPOSITORY }}
           ref: ${{ inputs.BRANCH_TO_RELEASE }}
-          token: ${{ secrets.ACTION_PAT }}
 
       - name: Determine Default Branch
         id: get-default-branch
@@ -42,13 +37,23 @@ jobs:
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "default-branch=$default_branch" >> $GITHUB_ENV
 
-      - name: Unlock Default Branch (If Protected)
+      - name: **Unlock Branch Protection for Master**
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"allow_force_pushes": true}' \
+            -d '{"required_status_checks": null, "restrictions": null, "allow_force_pushes": true}' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
+
+          # Verify if force push is now enabled
+          protection_status=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection" | jq -r '.allow_force_pushes')
+          
+          if [[ "$protection_status" != "true" ]]; then
+            echo "Error: Force push is still disabled! Exiting..."
+            exit 1
+          fi
 
       - name: Configure Git
         run: |
@@ -72,10 +77,10 @@ jobs:
             git commit -m "Update README badges to reflect master branch"
           fi
 
-          # Push changes
+          # Force Push Changes
           git push -f origin ${{ env.default-branch }}
 
-      - name: Restore Branch Protection
+      - name: **Restore Branch Protection**
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
