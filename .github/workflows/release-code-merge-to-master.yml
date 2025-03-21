@@ -20,9 +20,10 @@ on:
         required: true
 
 jobs:
-  code-to-master:
+  merge-to-master:
     runs-on: ${{ inputs.runs-on }}
     steps:
+
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -40,18 +41,19 @@ jobs:
       - name: Backup Current Branch Protection Rules
         id: backup-protection
         run: |
-          PROTECTION=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+          curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection")
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection" > protection.json
 
-          echo "PROTECTION_RULES=$(echo $PROTECTION | base64)" >> $GITHUB_ENV
+          cat protection.json  # Debugging
+          echo "PROTECTION_RULES=$(jq -c . protection.json)" >> $GITHUB_ENV
 
-      - name: Disable Branch Protection for Master
+      - name: Unlock Branch Protection for Master
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"required_status_checks": null, "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null, "allow_force_pushes": true, "lock_branch": false}' \
+            -d '{"required_status_checks": null, "restrictions": null, "allow_force_pushes": true}' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
       - name: Configure Git
@@ -81,10 +83,12 @@ jobs:
 
       - name: Restore Original Branch Protection
         run: |
+          echo '${{ env.PROTECTION_RULES }}' | jq '.' > restored_protection.json
+
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            --data "$(echo $PROTECTION_RULES | base64 --decode)" \
+            --data @restored_protection.json \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
       - name: Log Success
