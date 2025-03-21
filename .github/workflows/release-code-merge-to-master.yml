@@ -37,34 +37,22 @@ jobs:
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "default-branch=$default_branch" >> $GITHUB_ENV
 
-      - name: Unlock Branch Protection for Master
+      - name: Backup Current Branch Protection Rules
+        id: backup-protection
+        run: |
+          PROTECTION=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection")
+
+          echo "PROTECTION_RULES=$(echo $PROTECTION | base64)" >> $GITHUB_ENV
+
+      - name: Disable Branch Protection for Master
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{
-              "enforce_admins": false,
-              "required_status_checks": null,
-              "required_pull_request_reviews": {
-                "dismiss_stale_reviews": false,
-                "require_code_owner_reviews": false,
-                "required_approving_review_count": 0
-              },
-              "restrictions": null,
-              "allow_force_pushes": true,
-              "allow_deletions": false
-            }' \
+            -d '{"required_status_checks": null, "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null, "allow_force_pushes": true, "lock_branch": false}' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
-          
-          # Verify if force push is now enabled
-          protection_status=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection" | jq -r '.allow_force_pushes')
-          
-          if [[ "$protection_status" != "true" ]]; then
-            echo "Error: Force push is still disabled! Exiting..."
-            exit 1
-          fi
 
       - name: Configure Git
         run: |
@@ -91,12 +79,12 @@ jobs:
           # Force Push Changes
           git push -f origin ${{ env.default-branch }}
 
-      - name: Restore Branch Protection
+      - name: Restore Original Branch Protection
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"allow_force_pushes": false}' \
+            --data "$(echo $PROTECTION_RULES | base64 --decode)" \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
       - name: Log Success
