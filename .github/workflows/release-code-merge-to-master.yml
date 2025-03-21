@@ -1,0 +1,83 @@
+name: Merge to Master
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Platform to execute on
+        type: string
+        default: ubuntu-latest
+      BRANCH_TO_RELEASE:
+        description: "The branch to release and merge into the default branch"
+        required: true
+        type: string
+      REPOSITORY:
+        description: "The repository name (owner/repo format)"
+        required: true
+        type: string
+    secrets:
+      ACTION_PAT:
+        required: true
+
+jobs:
+  code-to-master:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.REPOSITORY }}
+          ref: ${{ inputs.BRANCH_TO_RELEASE }}
+
+      - name: Determine Default Branch
+        id: get-default-branch
+        run: |
+          default_branch=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
+          echo "default-branch=$default_branch" >> $GITHUB_ENV
+
+      - name: Unlock Default Branch (If Protected)
+        run: |
+          curl -X PUT \
+            -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            -d '{"allow_force_pushes": true}' \
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git remote set-url origin https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}
+
+      - name: Merge Release Branch to Master
+        run: |
+          git fetch --all
+          git checkout ${{ inputs.BRANCH_TO_RELEASE }}
+          git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
+          git checkout ${{ env.default-branch }}
+          git pull origin ${{ env.default-branch }}
+          git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
+
+          # Update README Badges
+          if grep -q "badge.svg?branch=" README.md; then
+            sed -i "s/badge.svg?branch=[^)]*/badge.svg?branch=${{ env.default-branch }}/g" README.md
+            git add README.md
+            git commit -m "Update README badges to reflect master branch"
+          fi
+
+          # Push changes
+          git push -f origin ${{ env.default-branch }}
+
+      - name: Restore Branch Protection
+        run: |
+          curl -X PUT \
+            -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            -d '{"allow_force_pushes": false}' \
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
+
+      - name: Log Success
+        run: |
+          echo "Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into ${{ env.default-branch }} in ${{ inputs.REPOSITORY }}."
