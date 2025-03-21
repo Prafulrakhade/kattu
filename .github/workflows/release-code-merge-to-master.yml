@@ -20,29 +20,22 @@ on:
         required: true
 
 jobs:
-  merge-to-master:
+  code-to-master:
     runs-on: ${{ inputs.runs-on }}
     steps:
-      - name: 🛒 Checkout Repository
+      - name: ✅ Checkout Repository
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.REPOSITORY }}
           ref: ${{ inputs.BRANCH_TO_RELEASE }}
 
-      - name: 🔍 Get Default Branch Name
+      - name: 🔍 Determine Default Branch
         id: get-default-branch
         run: |
           default_branch=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "default-branch=$default_branch" >> $GITHUB_ENV
-
-      - name: 🔒 Backup Existing Branch Protection Rules
-        run: |
-          PROTECTION=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection")
-          echo "PROTECTION_RULES=$(echo $PROTECTION | base64 -w 0)" >> $GITHUB_ENV
 
       - name: 🔓 Unlock Branch Protection for Master
         run: |
@@ -52,28 +45,21 @@ jobs:
             -d '{"required_status_checks": null, "restrictions": null, "allow_force_pushes": true, "enforce_admins": false, "required_pull_request_reviews": null}' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
-      - name: ✅ Verify Force Push Is Enabled
-        run: |
-          protection_status=$(curl -s -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection" | jq -r '.allow_force_pushes.enabled')
-
-          if [[ "$protection_status" != "true" ]]; then
-            echo "Error: Force push is still disabled! Exiting..."
-            exit 1
-          else
-            echo "✅ Force push is enabled. Proceeding..."
-          fi
-
-      - name: 🔧 Configure Git with PAT
+      - name: ✅ Configure Git Authentication
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
-          git remote remove origin || true
-          git remote add origin https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}
-          git remote -v
 
-      - name: 🚀 Merge & Force Push to Master
+          # Set remote URL with PAT authentication
+          git remote set-url origin https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}
+
+          # Verify authentication works
+          if ! git ls-remote origin &> /dev/null; then
+            echo "🚨 Git authentication failed! Check ACTION_PAT permissions."
+            exit 1
+          fi
+
+      - name: 🚀 Merge Release Branch to Master
         run: |
           git fetch --all
           git checkout ${{ inputs.BRANCH_TO_RELEASE }}
@@ -82,20 +68,25 @@ jobs:
           git pull origin ${{ env.default-branch }}
           git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
 
-          # Debugging: Check if branch is clean
-          git status
+          # Update README Badges
+          if grep -q "badge.svg?branch=" README.md; then
+            sed -i "s/badge.svg?branch=[^)]*/badge.svg?branch=${{ env.default-branch }}/g" README.md
+            git add README.md
+            git commit -m "Update README badges to reflect master branch"
+          fi
 
-          # Push changes
-          git push -f origin ${{ env.default-branch }}
+      - name: 🔥 Force Push to Master
+        run: |
+          git push -f https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git HEAD:${{ env.default-branch }}
 
-      - name: 🔄 Restore Original Branch Protection Rules
+      - name: 🔒 Restore Branch Protection
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            --data-binary @<(echo ${{ env.PROTECTION_RULES }} | base64 -d) \
+            -d '{"allow_force_pushes": false}' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.default-branch }}/protection"
 
-      - name: ✅ Log Success
+      - name: 🎉 Log Success
         run: |
-          echo "🎉 Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into ${{ env.default-branch }} in ${{ inputs.REPOSITORY }}."
+          echo "✅ Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into ${{ env.default-branch }} in ${{ inputs.REPOSITORY }}."
