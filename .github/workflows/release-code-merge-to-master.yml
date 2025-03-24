@@ -47,10 +47,10 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -d '{
               "required_status_checks": null,
-              "restrictions": null,
-              "allow_force_pushes": { "enabled": true },
+              "enforce_admins": false,
               "required_pull_request_reviews": null,
-              "enforce_admins": false
+              "restrictions": null,
+              "allow_force_pushes": true
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
