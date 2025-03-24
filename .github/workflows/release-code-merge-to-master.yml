@@ -34,6 +34,12 @@ jobs:
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
 
+      - name: 🐛 Debug Environment Variables
+        run: |
+          echo "Repository: ${{ inputs.REPOSITORY }}"
+          echo "Branch to release: ${{ inputs.BRANCH_TO_RELEASE }}"
+          echo "Default branch: $DEFAULT_BRANCH"
+
       - name: 🔓 Unlock Branch Protection (Enable Force Push)
         run: |
           curl -X PUT \
