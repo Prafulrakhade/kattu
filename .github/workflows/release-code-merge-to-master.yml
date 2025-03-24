@@ -1,4 +1,4 @@
-name: Merge to Master/Main
+name: 🚀 Merge to Master/Main
 
 on:
   workflow_call:
@@ -20,14 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      # Checkout the repository
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.REPOSITORY }}
           ref: ${{ inputs.BRANCH_TO_RELEASE }}
 
-      # Get the default branch
       - name: 🔍 Get Default Branch
         id: get-default-branch
         run: |
@@ -36,14 +34,6 @@ jobs:
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
 
-      # Debug environment variables for validation
-      - name: 🐛 Debug Environment Variables
-        run: |
-          echo "REPOSITORY=${{ inputs.REPOSITORY }}"
-          echo "BRANCH_TO_RELEASE=${{ inputs.BRANCH_TO_RELEASE }}"
-          echo "DEFAULT_BRANCH=${{ env.DEFAULT_BRANCH }}"
-
-      # Unlock branch protection to allow force push
       - name: 🔓 Unlock Branch Protection (Enable Force Push)
         run: |
           curl -X PUT \
@@ -58,52 +48,46 @@ jobs:
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
-      # Configure Git
-      - name: 🔧 Configure Git
+      - name: 🔧 Configure Git Credentials
         run: |
-          git config --global user.name "GitHub Actions Bot"
+          git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
 
-      # Merge Release Branch to Default Branch
-      - name: 🔄 Merge Release Branch to Default Branch
+      - name: 🔄 Merge Release Branch to Default Branch & Update Badges
         run: |
           git fetch --all
           git checkout ${{ inputs.BRANCH_TO_RELEASE }}
           git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
-          git checkout $DEFAULT_BRANCH
-          git pull origin $DEFAULT_BRANCH
+          git checkout ${{ env.DEFAULT_BRANCH }}
+          git pull origin ${{ env.DEFAULT_BRANCH }}
           git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
 
-      # Force Push to Default Branch
-      - name: 🚀 Force Push to Default Branch
-        run: |
-          git push -f origin HEAD:$DEFAULT_BRANCH
-        env:
-          DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
+          # 🏷️ Update Badges in README (If Applicable)
+          if grep -q "badge.svg?branch=" README.md; then
+            sed -i "s/badge.svg?branch=[^)]*/badge.svg?branch=${{ env.DEFAULT_BRANCH }}/g" README.md
+            sed -i "s/push_trigger.yml/push-trigger.yml/g" README.md
+            git add README.md
+            git commit -m "Update README badges to reflect default branch"
+          fi
 
-      # Restore branch protection to disable force push and re-lock the branch
-      - name: 🔒 Restore Branch Protection
+          # 🚀 Single Push Command (Includes README Update)
+          git push -f origin ${{ env.DEFAULT_BRANCH }}
+
+      - name: 🔒 Restore Branch Protection (Disable Force Push)
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -d '{
-              "required_status_checks": {
-                "strict": true,
-                "contexts": []
-              },
-              "enforce_admins": true,
-              "allow_force_pushes": false,
-              "allow_deletions": false,
-              "restrictions": {
-                "users": [],
-                "teams": []
-              }
+              "required_status_checks": null,
+              "enforce_admins": false,
+              "required_pull_request_reviews": null,
+              "restrictions": null,
+              "allow_force_pushes": false
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
-      # Log success message
       - name: ✅ Log Success
         run: |
-          echo "Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into $DEFAULT_BRANCH in ${{ inputs.REPOSITORY }}."
+          echo "✅ Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into $DEFAULT_BRANCH in ${{ inputs.REPOSITORY }}."
