@@ -53,6 +53,7 @@ jobs:
               "allow_force_pushes": true
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
+
       - name: 🐛 Debug Branch Protection API Response
         run: |
           curl -X GET \
@@ -78,7 +79,7 @@ jobs:
       - name: 🚀 Force Push to Default Branch
         run: |
           git push -f origin HEAD:$DEFAULT_BRANCH
-        env:
+          env:
           DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
 
       - name: 🔒 Restore Branch Protection (Disable Force Push)
@@ -87,7 +88,17 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -d '{
-              "allow_force_pushes": { "enabled": false }
+              "required_status_checks": {
+                "strict": true,
+                "contexts": []
+              },
+              "enforce_admins": true,
+              "allow_force_pushes": false,
+              "allow_deletions": false,
+              "restrictions": {
+                "users": [],
+                "teams": []
+              }
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
