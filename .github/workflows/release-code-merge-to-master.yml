@@ -53,6 +53,12 @@ jobs:
               "allow_force_pushes": true
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
+      - name: 🐛 Debug Branch Protection API Response
+        run: |
+          curl -X GET \
+            -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
       - name: 🔧 Configure Git
         run: |
