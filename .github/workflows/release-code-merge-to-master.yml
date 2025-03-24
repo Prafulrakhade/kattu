@@ -13,7 +13,7 @@ on:
         type: string
     secrets:
       ACTION_PAT:
-        required: true
+        required: true  # Ensure a Personal Access Token (PAT) is provided
 
 jobs:
   merge-to-master:
@@ -48,7 +48,7 @@ jobs:
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
-      - name: 🔧 Configure Git Credentials
+      - name: 🔧 Configure Git Credentials (Use PAT)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -68,6 +68,8 @@ jobs:
             sed -i "s/badge.svg?branch=[^)]*/badge.svg?branch=${{ env.DEFAULT_BRANCH }}/g" README.md
             sed -i "s/push_trigger.yml/push-trigger.yml/g" README.md
             git add README.md
+            echo "🔍 Showing README Changes Before Committing:"
+            git diff --cached  # Print changes for debugging
             git commit -m "Update README badges to reflect default branch"
           fi
 
