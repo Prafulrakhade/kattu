@@ -20,12 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      # Checkout the repository
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.REPOSITORY }}
           ref: ${{ inputs.BRANCH_TO_RELEASE }}
 
+      # Get the default branch
       - name: 🔍 Get Default Branch
         id: get-default-branch
         run: |
@@ -34,12 +36,14 @@ jobs:
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
 
+      # Debug environment variables for validation
       - name: 🐛 Debug Environment Variables
         run: |
-          echo "Repository: ${{ inputs.REPOSITORY }}"
-          echo "Branch to release: ${{ inputs.BRANCH_TO_RELEASE }}"
-          echo "Default branch: $DEFAULT_BRANCH"
+          echo "REPOSITORY=${{ inputs.REPOSITORY }}"
+          echo "BRANCH_TO_RELEASE=${{ inputs.BRANCH_TO_RELEASE }}"
+          echo "DEFAULT_BRANCH=${{ env.DEFAULT_BRANCH }}"
 
+      # Unlock branch protection to allow force push
       - name: 🔓 Unlock Branch Protection (Enable Force Push)
         run: |
           curl -X PUT \
@@ -54,19 +58,14 @@ jobs:
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
-      - name: 🐛 Debug Branch Protection API Response
-        run: |
-          curl -X GET \
-            -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
-
+      # Configure Git
       - name: 🔧 Configure Git
         run: |
-          git config --global user.name "github-actions[bot]"
+          git config --global user.name "GitHub Actions Bot"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
 
+      # Merge Release Branch to Default Branch
       - name: 🔄 Merge Release Branch to Default Branch
         run: |
           git fetch --all
@@ -76,13 +75,15 @@ jobs:
           git pull origin $DEFAULT_BRANCH
           git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
 
+      # Force Push to Default Branch
       - name: 🚀 Force Push to Default Branch
         run: |
           git push -f origin HEAD:$DEFAULT_BRANCH
-          env:
+        env:
           DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
 
-      - name: 🔒 Restore Branch Protection (Disable Force Push)
+      # Restore branch protection to disable force push and re-lock the branch
+      - name: 🔒 Restore Branch Protection
         run: |
           curl -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
@@ -102,6 +103,7 @@ jobs:
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
+      # Log success message
       - name: ✅ Log Success
         run: |
           echo "Successfully merged ${{ inputs.BRANCH_TO_RELEASE }} into $DEFAULT_BRANCH in ${{ inputs.REPOSITORY }}."
