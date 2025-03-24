@@ -32,9 +32,9 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
-          echo "Default Branch: $DEFAULT_BRANCH" #debugging.
+          echo "Default Branch: $DEFAULT_BRANCH"
 
-      - name: 🔓 Unlock Branch Protection (Enable Force Push)
+      - name: 🔓 Unlock Branch Protection (Disable Lock & Enable Force Push)
         run: |
           RESPONSE=$(curl -s -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
@@ -44,23 +44,22 @@ jobs:
               "enforce_admins": false,
               "required_pull_request_reviews": null,
               "restrictions": null,
-              "allow_force_pushes": true
+              "allow_force_pushes": true,
+              "lock_branch": false
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
-          echo "Unlock Branch Protection Response: $RESPONSE" #debugging
-          if [[ $(echo "$RESPONSE" | jq -r '.message') != "Branch protection updated" ]]; then
-            echo "Failed to unlock branch protection: $RESPONSE"
+          echo "Unlock Branch Protection Response: $RESPONSE"
+          if [[ $(echo "$RESPONSE" | jq -r '.lock_branch.enabled') == "true" ]]; then
+            echo "❌ Failed to unlock branch, lock_branch is still enabled!"
             exit 1
           fi
 
       - name: 🔧 Configure Git Credentials (Use PAT)
         run: |
-          echo "Setting Git remote URL..."
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
-          git remote -v #show the configured remote.
-          echo "Git remote URL set."
+          git remote -v
 
       - name: 🔄 Merge Release Branch to Default Branch & Update Badges
         run: |
@@ -84,7 +83,7 @@ jobs:
           git push -f origin ${{ env.DEFAULT_BRANCH }}
           echo "Git push completed."
 
-      - name: 🔒 Restore Branch Protection (Disable Force Push)
+      - name: 🔒 Restore Branch Protection (Re-enable Lock & Disable Force Push)
         run: |
           RESPONSE=$(curl -s -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
@@ -94,12 +93,13 @@ jobs:
               "enforce_admins": false,
               "required_pull_request_reviews": null,
               "restrictions": null,
-              "allow_force_pushes": false
+              "allow_force_pushes": false,
+              "lock_branch": true
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
-          echo "Restore Branch Protection Response: $RESPONSE" #debugging
-          if [[ $(echo "$RESPONSE" | jq -r '.message') != "Branch protection updated" ]]; then
-            echo "Failed to restore branch protection: $RESPONSE"
+          echo "Restore Branch Protection Response: $RESPONSE"
+          if [[ $(echo "$RESPONSE" | jq -r '.lock_branch.enabled') == "false" ]]; then
+            echo "❌ Failed to re-lock branch!"
             exit 1
           fi
 
