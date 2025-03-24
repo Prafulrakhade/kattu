@@ -13,13 +13,12 @@ on:
         type: string
     secrets:
       ACTION_PAT:
-        required: true  # Ensure a Personal Access Token (PAT) is provided
+        required: true
 
 jobs:
   merge-to-master:
     runs-on: ubuntu-latest
     steps:
-
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -33,10 +32,11 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}" | jq -r '.default_branch')
           echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
+          echo "Default Branch: $DEFAULT_BRANCH" #debugging.
 
       - name: 🔓 Unlock Branch Protection (Enable Force Push)
         run: |
-          curl -X PUT \
+          RESPONSE=$(curl -s -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -d '{
@@ -46,16 +46,25 @@ jobs:
               "restrictions": null,
               "allow_force_pushes": true
             }' \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
+          echo "Unlock Branch Protection Response: $RESPONSE" #debugging
+          if [[ $(echo "$RESPONSE" | jq -r '.message') != "Branch protection updated" ]]; then
+            echo "Failed to unlock branch protection: $RESPONSE"
+            exit 1
+          fi
 
       - name: 🔧 Configure Git Credentials (Use PAT)
         run: |
+          echo "Setting Git remote URL..."
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
+          git remote -v #show the configured remote.
+          echo "Git remote URL set."
 
       - name: 🔄 Merge Release Branch to Default Branch & Update Badges
         run: |
+          echo "Starting merge process..."
           git fetch --all
           git checkout ${{ inputs.BRANCH_TO_RELEASE }}
           git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
@@ -63,22 +72,21 @@ jobs:
           git pull origin ${{ env.DEFAULT_BRANCH }}
           git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
 
-          # 🏷️ Update Badges in README (If Applicable)
           if grep -q "badge.svg?branch=" README.md; then
             sed -i "s/badge.svg?branch=[^)]*/badge.svg?branch=${{ env.DEFAULT_BRANCH }}/g" README.md
             sed -i "s/push_trigger.yml/push-trigger.yml/g" README.md
             git add README.md
             echo "🔍 Showing README Changes Before Committing:"
-            git diff --cached  # Print changes for debugging
+            git diff --cached
             git commit -m "Update README badges to reflect default branch"
           fi
-
-          # 🚀 Single Push Command (Includes README Update)
+          echo "Attempting git push..."
           git push -f origin ${{ env.DEFAULT_BRANCH }}
+          echo "Git push completed."
 
       - name: 🔒 Restore Branch Protection (Disable Force Push)
         run: |
-          curl -X PUT \
+          RESPONSE=$(curl -s -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -d '{
@@ -88,7 +96,12 @@ jobs:
               "restrictions": null,
               "allow_force_pushes": false
             }' \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
+          echo "Restore Branch Protection Response: $RESPONSE" #debugging
+          if [[ $(echo "$RESPONSE" | jq -r '.message') != "Branch protection updated" ]]; then
+            echo "Failed to restore branch protection: $RESPONSE"
+            exit 1
+          fi
 
       - name: ✅ Log Success
         run: |
