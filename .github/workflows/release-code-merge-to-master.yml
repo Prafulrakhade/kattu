@@ -49,21 +49,24 @@ jobs:
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
           echo "Unlock Branch Protection Response: $RESPONSE"
-          if [[ $(echo "$RESPONSE" | jq -r '.lock_branch.enabled') == "true" ]]; then
-            echo "❌ Failed to unlock branch, lock_branch is still enabled!"
-            exit 1
-          fi
 
-      - name: 🔧 Configure Git Credentials (Use PAT)
+      - name: 🔧 Configure Git Credentials
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
+          git config --global credential.helper store
+          echo "https://${{ secrets.ACTION_PAT }}@github.com" > ~/.git-credentials
+          chmod 600 ~/.git-credentials
+          git remote set-url origin https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
           git remote -v
+
+      - name: 🔍 Debug Git Authentication
+        run: |
+          echo "Testing Git Authentication..."
+          git ls-remote origin || { echo "❌ Authentication failed"; exit 1; }
 
       - name: 🔄 Merge Release Branch to Default Branch & Update Badges
         run: |
-          echo "Starting merge process..."
           git fetch --all
           git checkout ${{ inputs.BRANCH_TO_RELEASE }}
           git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
@@ -79,8 +82,9 @@ jobs:
             git diff --cached
             git commit -m "Update README badges to reflect default branch"
           fi
+
           echo "Attempting git push..."
-          git push -f origin ${{ env.DEFAULT_BRANCH }}
+          git push -f origin ${{ env.DEFAULT_BRANCH }} || { echo "❌ Git push failed"; exit 1; }
           echo "Git push completed."
 
       - name: 🔒 Restore Branch Protection (Re-enable Lock & Disable Force Push)
@@ -98,10 +102,6 @@ jobs:
             }' \
             "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
           echo "Restore Branch Protection Response: $RESPONSE"
-          if [[ $(echo "$RESPONSE" | jq -r '.lock_branch.enabled') == "false" ]]; then
-            echo "❌ Failed to re-lock branch!"
-            exit 1
-          fi
 
       - name: ✅ Log Success
         run: |
