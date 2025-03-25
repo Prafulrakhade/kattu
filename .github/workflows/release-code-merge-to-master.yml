@@ -24,6 +24,7 @@ jobs:
         with:
           repository: ${{ inputs.REPOSITORY }}
           ref: ${{ inputs.BRANCH_TO_RELEASE }}
+          token: ${{ secrets.ACTION_PAT }} # ✅ Explicitly use PAT
 
       - name: 🔍 Get Default Branch
         id: get-default-branch
@@ -36,7 +37,7 @@ jobs:
 
       - name: 🔓 Unlock Branch Protection (Disable Lock & Enable Force Push)
         run: |
-          RESPONSE=$(curl -s -X PUT \
+          curl -s -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -d '{
@@ -47,18 +48,13 @@ jobs:
               "allow_force_pushes": true,
               "lock_branch": false
             }' \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
-          echo "Unlock Branch Protection Response: $RESPONSE"
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
       - name: 🔧 Configure Git Credentials
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global credential.helper store
-          echo "https://${{ secrets.ACTION_PAT }}@github.com" > ~/.git-credentials
-          chmod 600 ~/.git-credentials
           git remote set-url origin https://${{ secrets.ACTION_PAT }}@github.com/${{ inputs.REPOSITORY }}.git
-          git remote -v
 
       - name: 🔍 Debug Git Authentication
         run: |
@@ -67,11 +63,11 @@ jobs:
 
       - name: 🔄 Merge Release Branch to Default Branch & Update Badges
         run: |
-          git fetch --all
+          git fetch --all --force
           git checkout ${{ inputs.BRANCH_TO_RELEASE }}
-          git pull origin ${{ inputs.BRANCH_TO_RELEASE }}
+          git pull origin ${{ inputs.BRANCH_TO_RELEASE }} --rebase
           git checkout ${{ env.DEFAULT_BRANCH }}
-          git pull origin ${{ env.DEFAULT_BRANCH }}
+          git pull origin ${{ env.DEFAULT_BRANCH }} --rebase
           git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
 
           if grep -q "badge.svg?branch=" README.md; then
@@ -84,12 +80,12 @@ jobs:
           fi
 
           echo "Attempting git push..."
-          git push -f origin ${{ env.DEFAULT_BRANCH }} || { echo "❌ Git push failed"; exit 1; }
+          git push -f origin HEAD:${{ env.DEFAULT_BRANCH }} || { echo "❌ Git push failed"; exit 1; }
           echo "Git push completed."
 
       - name: 🔒 Restore Branch Protection (Re-enable Lock & Disable Force Push)
         run: |
-          RESPONSE=$(curl -s -X PUT \
+          curl -s -X PUT \
             -H "Authorization: Bearer ${{ secrets.ACTION_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -d '{
@@ -100,8 +96,7 @@ jobs:
               "allow_force_pushes": false,
               "lock_branch": true
             }' \
-            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection")
-          echo "Restore Branch Protection Response: $RESPONSE"
+            "https://api.github.com/repos/${{ inputs.REPOSITORY }}/branches/${{ env.DEFAULT_BRANCH }}/protection"
 
       - name: ✅ Log Success
         run: |
