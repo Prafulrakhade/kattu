@@ -71,7 +71,7 @@ jobs:
           git reset --hard origin/${{ inputs.BRANCH_TO_RELEASE }}
 
           if grep -q "branch=" README.md; then
-            sed -i "s/branch=[^)]*/badge.svg?branch=${{ env.DEFAULT_BRANCH }}/g" README.md
+            sed -i "s/branch=[^)]*/branch=${{ env.DEFAULT_BRANCH }}/g" README.md
             sed -i "s/push_trigger.yml/push-trigger.yml/g" README.md
             git add README.md
             echo "🔍 Showing README Changes Before Committing:"
