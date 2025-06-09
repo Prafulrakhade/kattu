@@ -123,13 +123,44 @@ jobs:
               echo "Warning: ARTIFACT $ARTIFACT not found"
             fi
           done
+
     - name: Zip the Spring Boot JAR
       run: |
-        mkdir -p build-artifacts
-        cp ${{ inputs.SERVICE_LOCATION }}/target/${{ inputs.BUILD_ARTIFACT }}*.jar build-artifacts/
-        cd build-artifacts
-        zip ${{ inputs.BUILD_ARTIFACT }}.zip ${{ inputs.BUILD_ARTIFACT }}*.jar
-        mv ${{ inputs.BUILD_ARTIFACT }}.zip ../
+          # Create build directory
+          mkdir -p build-artifacts
+          # Copy all JARs including any 'original' files
+          cp ${{ inputs.SERVICE_LOCATION }}/target/${{ inputs.BUILD_ARTIFACT }}*.jar build-artifacts/
+          # Remove Spring Boot's repackaged original JARs (if any)
+          find build-artifacts -name "*.original.jar" -delete
+    
+          # Verify we have JARs to package
+          JAR_COUNT=$(ls build-artifacts/*.jar 2>/dev/null | wc -l)
+          if [ "$JAR_COUNT" -eq 0 ]; then
+              echo "::error::No JAR files found in ${{ inputs.SERVICE_LOCATION }}/target/"
+              echo "Files in target directory:"
+              ls -la ${{ inputs.SERVICE_LOCATION }}/target/
+          exit 1
+          fi
+    
+          echo "Packaging $JAR_COUNT JAR file(s):"
+          ls -la build-artifacts/
+    
+          # Create ZIP
+          cd build-artifacts
+          zip ${{ inputs.BUILD_ARTIFACT }}.zip *.jar
+          mv ${{ inputs.BUILD_ARTIFACT }}.zip ../
+    
+          echo "Created ZIP file:"
+          ls -la ../${{ inputs.BUILD_ARTIFACT }}.zip
+
+    - name: Verify ZIP exists
+      run: |
+        if [ ! -f "${{ inputs.BUILD_ARTIFACT }}.zip" ]; then
+          echo "::error::ZIP file not created!"
+          exit 1
+        fi
+        echo "ZIP file verified:"
+        ls -la ${{ inputs.BUILD_ARTIFACT }}.zip
 
     - name: Upload the springboot jars
       if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
