@@ -147,12 +147,24 @@ jobs:
       run: |
           IFS=',' read -ra ARTIFACTS <<< "${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}"
           for ARTIFACT in "${ARTIFACTS[@]}"; do
-            artifact_path="*/target/${ARTIFACT}"
-            if ls $artifact_path 1> /dev/null 2>&1; then
-              echo "Adding non-executable ARTIFACT: $artifact_path to release zip"
-              zip -r ${{ inputs.BUILD_ARTIFACT }}.zip $artifact_path
+              echo "Searching for non-executable artifact: ${ARTIFACT}"
+        
+          # Find all matching non-executable artifacts in any target directory under SERVICE_LOCATION
+          found_files=$(find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name "${ARTIFACT}" -type f ! -executable 2>/dev/null)
+        
+          if [ -n "$found_files" ]; then
+            echo "Found non-executable artifact(s):"
+            echo "$found_files"
+          
+            # Add each found file to the zip
+            while IFS= read -r file; do
+              if [ -f "$file" ]; then
+                echo "Adding to release zip: $file"
+                zip -r ${{ inputs.BUILD_ARTIFACT }}.zip "$file"
+              fi
+            done <<< "$found_files"
             else
-              echo "Warning: ARTIFACT $ARTIFACT not found"
+            echo "Warning: Non-executable ARTIFACT ${ARTIFACT} not found in any target directory"
             fi
           done
 
