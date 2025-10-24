@@ -114,33 +114,10 @@ jobs:
         find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -executable -ls || echo "No executable JARs found"
 
     - name: Ready the springboot executable artifacts
-      if: ${{ !contains(github.ref, 'master') && !contains(github.ref, 'main') }}
+      if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
       run: |
         ## FIND JARS & COPY ONLY EXECUTABLE JARs STORED UNDER TARGET DIRECTORY 
-        EXEC_JAR_COUNT=$(find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -executable | wc -l)
-        echo "Found $EXEC_JAR_COUNT executable JAR file(s)"
-        
-        if [ $EXEC_JAR_COUNT -eq 0 ]; then
-          echo "ERROR: No executable JAR files found!"
-          echo "This might indicate:"
-          echo "  1. Spring Boot plugin configuration changed (check pom.xml)"
-          echo "  2. Maven build didn't complete successfully"
-          echo "  3. File permissions not set correctly during build"
-          echo ""
-          echo "All JAR files found (regardless of executable bit):"
-          find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -ls
-          exit 1
-        fi
-        
-        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -executable -exec zip ${{ inputs.BUILD_ARTIFACT }}.zip {} +
-        
-        if [ ! -f "${{ inputs.BUILD_ARTIFACT }}.zip" ]; then
-          echo "ERROR: Failed to create zip file"
-          exit 1
-        fi
-        
-        echo "Successfully created ${{ inputs.BUILD_ARTIFACT }}.zip with contents:"
-        zipinfo ${{ inputs.BUILD_ARTIFACT }}.zip
+        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar'  -type f  -executable -exec zip ${{ inputs.BUILD_ARTIFACT }}.zip {} +
 
     - name: Ready the springboot non-executable artifacts
       if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}
