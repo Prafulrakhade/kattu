@@ -104,11 +104,43 @@ jobs:
     - name: Build with Maven
       run: cd ${{ inputs.SERVICE_LOCATION }} && mvn -U -B package -Dmaven.wagon.http.retryHandler.count=2 --file pom.xml -s $GITHUB_WORKSPACE/settings.xml
 
+    - name: Debug - List all JARs and permissions
+      if: ${{ !contains(github.ref, 'master') && !contains(github.ref, 'main') }}
+      run: |
+        echo "=== All JAR files in target directories with permissions ==="
+        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -ls || echo "No JAR files found"
+        echo ""
+        echo "=== JAR files with executable bit set ==="
+        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -executable -ls || echo "No executable JARs found"
+
     - name: Ready the springboot executable artifacts
-      if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
+      if: ${{ !contains(github.ref, 'master') && !contains(github.ref, 'main') }}
       run: |
         ## FIND JARS & COPY ONLY EXECUTABLE JARs STORED UNDER TARGET DIRECTORY 
-        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar'  -type f  -executable -exec zip ${{ inputs.BUILD_ARTIFACT }}.zip {} +
+        EXEC_JAR_COUNT=$(find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -executable | wc -l)
+        echo "Found $EXEC_JAR_COUNT executable JAR file(s)"
+        
+        if [ $EXEC_JAR_COUNT -eq 0 ]; then
+          echo "ERROR: No executable JAR files found!"
+          echo "This might indicate:"
+          echo "  1. Spring Boot plugin configuration changed (check pom.xml)"
+          echo "  2. Maven build didn't complete successfully"
+          echo "  3. File permissions not set correctly during build"
+          echo ""
+          echo "All JAR files found (regardless of executable bit):"
+          find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -ls
+          exit 1
+        fi
+        
+        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -executable -exec zip ${{ inputs.BUILD_ARTIFACT }}.zip {} +
+        
+        if [ ! -f "${{ inputs.BUILD_ARTIFACT }}.zip" ]; then
+          echo "ERROR: Failed to create zip file"
+          exit 1
+        fi
+        
+        echo "Successfully created ${{ inputs.BUILD_ARTIFACT }}.zip with contents:"
+        zipinfo ${{ inputs.BUILD_ARTIFACT }}.zip
 
     - name: Ready the springboot non-executable artifacts
       if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}
@@ -134,7 +166,7 @@ jobs:
     - uses: 8398a7/action-slack@v3
       with:
         status: ${{ job.status }}
-        fields: repo,message,author,commit,workflow,job # selectable (default: repo,message)
+        fields: repo, message, author, commit, workflow, job # selectable (default: repo,message)
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} # required
       if: "${{ github.event_name != 'pull_request' && failure() }}" # Pick up events even if the job fails or is canceled.
