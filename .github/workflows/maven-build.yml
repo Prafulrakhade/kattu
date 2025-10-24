@@ -94,6 +94,31 @@ jobs:
         xmlstarlet sel -N s="http://maven.apache.org/POM/4.0.0" -t -v "//s:project/s:description" -nl pom.xml | grep -q "."
         echo "Project description found"
 
+    - name: Validate pom.xml & settings.xml via xmllint
+      run: |
+        find ${{ inputs.SERVICE_LOCATION }} -type f -name pom.xml | while read -r F; do
+          echo "Pom file : $F"
+          xmllint --xpath '/*[local-name()="project"]/*[local-name()="version"]' $F
+        done
+
+    - name: Build with Maven
+      run: cd ${{ inputs.SERVICE_LOCATION }} && mvn -U -B package -Dmaven.wagon.http.retryHandler.count=2 --file pom.xml -s $GITHUB_WORKSPACE/settings.xml
+
+    - name: Debug - List all JARs and permissions
+      if: ${{ !contains(github.ref, 'master') && !contains(github.ref, 'main') }}
+      run: |
+        echo "=== All JAR files in target directories with permissions ==="
+        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -ls || echo "No JAR files found"
+        echo ""
+        echo "=== JAR files with executable bit set ==="
+        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -executable -ls || echo "No executable JARs found"
+
+    - name: Ready the springboot executable artifacts
+      if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
+      run: |
+        ## FIND JARS & COPY ONLY EXECUTABLE JARs STORED UNDER TARGET DIRECTORY 
+        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar'  -type f  -executable -exec zip ${{ inputs.BUILD_ARTIFACT }}.zip {} +    
+
     - name: Ready the springboot non-executable artifacts
       if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}
       run: |
