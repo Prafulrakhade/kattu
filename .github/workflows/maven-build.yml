@@ -124,47 +124,39 @@ jobs:
       run: |
         echo "Preparing non-executable artifacts for zipping..."
         IFS=',' read -ra ARTIFACTS <<< "${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}"
-        TMP_DIR="non_exec_artifacts"
-        mkdir -p "$TMP_DIR"
 
         for ARTIFACT in "${ARTIFACTS[@]}"; do
           ARTIFACT=$(echo "$ARTIFACT" | xargs) # trim spaces
           echo "Searching recursively for non-executable artifact pattern: ${ARTIFACT}"
 
-          # Search across all submodules under SERVICE_LOCATION
+          # Find matching non-executable JARs in all submodules
           found_files=$(find ${{ inputs.SERVICE_LOCATION }} -type f -path "*/target/*" -name "${ARTIFACT}" ! -executable 2>/dev/null \
             | grep -Ev '(-sources|-javadoc|-tests)\.jar$' || true)
 
           if [ -n "$found_files" ]; then
             echo "Found non-executable artifact(s):"
             echo "$found_files"
+
             while IFS= read -r file; do
-              if [ -f "$file" ]; then
-                base_name=$(basename "$file")
+              [ -f "$file" ] || continue
 
-                # Remove version suffixes like -1.3.0, -1.3.0-SNAPSHOT, -1.3.0-RC1 etc.
-                clean_name=$(echo "$base_name" | sed -E 's/-[0-9]+(\.[0-9]+)*(-SNAPSHOT|-RC[0-9]+)?//g')
+              jar_dir=$(dirname "$file")
+              base_name=$(basename "$file")
 
-                # Keep simple flattened structure (no nested folders)
-                dest_path="${TMP_DIR}/${clean_name}"
+              # Remove version suffixes like -1.3.0, -1.3.0-SNAPSHOT, -1.3.0-RC1
+              clean_name=$(echo "$base_name" | sed -E 's/-[0-9]+(\.[0-9]+)*(-SNAPSHOT|-RC[0-9]+)?//g')
 
-                cp "$file" "$dest_path"
-                echo "Added: ${dest_path}"
-              fi
+              echo "📦 Creating zip for ${file} inside ${jar_dir}"
+              (
+                cd "$jar_dir"
+                zip -r "${clean_name%.*}.zip" "$base_name"
+              )
+              echo "✅ Created: ${jar_dir}/${clean_name%.*}.zip"
             done <<< "$found_files"
           else
-            echo "Warning: Non-executable artifact ${ARTIFACT} not found in any target directory"
+            echo "⚠️ Warning: Non-executable artifact ${ARTIFACT} not found in any target directory"
           fi
         done
-
-        echo "Zipping all collected non-executable artifacts..."
-        cd "$TMP_DIR"
-        zip -r "../${{ inputs.BUILD_ARTIFACT }}.zip" ./*
-        cd ..
-        echo "Non-executable artifacts have been added to: ${{ inputs.BUILD_ARTIFACT }}.zip"
-
-        # Clean up temp directory
-        rm -rf "$TMP_DIR"
 
     - name: Upload the springboot jars
       if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
