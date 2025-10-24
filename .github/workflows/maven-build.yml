@@ -94,69 +94,37 @@ jobs:
         xmlstarlet sel -N s="http://maven.apache.org/POM/4.0.0" -t -v "//s:project/s:description" -nl pom.xml | grep -q "."
         echo "Project description found"
 
-    - name: Validate pom.xml & settings.xml via xmllint
-      run: |
-        find ${{ inputs.SERVICE_LOCATION }} -type f -name pom.xml | while read -r F; do
-          echo "Pom file : $F"
-          xmllint --xpath '/*[local-name()="project"]/*[local-name()="version"]' $F
-        done
-
-    - name: Build with Maven
-      run: cd ${{ inputs.SERVICE_LOCATION }} && mvn -U -B package -Dmaven.wagon.http.retryHandler.count=2 --file pom.xml -s $GITHUB_WORKSPACE/settings.xml
-
-    - name: Debug - List all JARs and permissions
-      if: ${{ !contains(github.ref, 'master') && !contains(github.ref, 'main') }}
-      run: |
-        echo "=== All JAR files in target directories with permissions ==="
-        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -ls || echo "No JAR files found"
-        echo ""
-        echo "=== JAR files with executable bit set ==="
-        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar' -type f -executable -ls || echo "No executable JARs found"
-
-    - name: Ready the springboot executable artifacts
-      if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
-      run: |
-        ## FIND JARS & COPY ONLY EXECUTABLE JARs STORED UNDER TARGET DIRECTORY 
-        find ${{ inputs.SERVICE_LOCATION }} -path '*/target/*' -name '*.jar'  -type f  -executable -exec zip ${{ inputs.BUILD_ARTIFACT }}.zip {} +
-
     - name: Ready the springboot non-executable artifacts
-      if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}
-      run: |
-        echo "Preparing non-executable artifacts for zipping..."
-        IFS=',' read -ra ARTIFACTS <<< "${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}"
-
-        for ARTIFACT in "${ARTIFACTS[@]}"; do
-          ARTIFACT=$(echo "$ARTIFACT" | xargs) # trim spaces
-          echo "Searching recursively for non-executable artifact pattern: ${ARTIFACT}"
-
-          # Find matching non-executable JARs in all submodules
-          found_files=$(find ${{ inputs.SERVICE_LOCATION }} -type f -path "*/target/*" -name "${ARTIFACT}" ! -executable 2>/dev/null \
-            | grep -Ev '(-sources|-javadoc|-tests)\.jar$' || true)
-
-          if [ -n "$found_files" ]; then
-            echo "Found non-executable artifact(s):"
-            echo "$found_files"
-
-            while IFS= read -r file; do
-              [ -f "$file" ] || continue
-
-              jar_dir=$(dirname "$file")
-              base_name=$(basename "$file")
-
-              # Remove version suffixes like -1.3.0, -1.3.0-SNAPSHOT, -1.3.0-RC1
-              clean_name=$(echo "$base_name" | sed -E 's/-[0-9]+(\.[0-9]+)*(-SNAPSHOT|-RC[0-9]+)?//g')
-
-              echo "📦 Creating zip for ${file} inside ${jar_dir}"
-              (
-                cd "$jar_dir"
-                zip -r "${clean_name%.*}.zip" "$base_name"
-              )
-              echo "✅ Created: ${jar_dir}/${clean_name%.*}.zip"
-            done <<< "$found_files"
-          else
-            echo "⚠️ Warning: Non-executable artifact ${ARTIFACT} not found in any target directory"
+  if: ${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}
+  run: |
+    echo "Preparing non-executable artifacts for zipping..."
+    IFS=',' read -ra ARTIFACTS <<< "${{ inputs.MAVEN_NON_EXEC_ARTIFACTS }}"
+    
+    for ARTIFACT in "${ARTIFACTS[@]}"; do
+      ARTIFACT=$(echo "$ARTIFACT" | xargs) # trim spaces
+      echo "Searching recursively for non-executable artifact pattern: ${ARTIFACT}"
+      
+      # Search across all submodules under SERVICE_LOCATION
+      found_files=$(find ${{ inputs.SERVICE_LOCATION }} -type f -path "*/target/*" -name "${ARTIFACT}" ! -executable 2>/dev/null \
+        | grep -Ev '(-sources|-javadoc|-tests)\.jar$' || true)
+      
+      if [ -n "$found_files" ]; then
+        echo "Found non-executable artifact(s):"
+        echo "$found_files"
+        
+        while IFS= read -r file; do
+          if [ -f "$file" ]; then
+            echo "Adding to zip with full path: $file"
+            # Add file to zip preserving the directory structure
+            zip -r ${{ inputs.BUILD_ARTIFACT }}.zip "$file"
           fi
-        done
+        done <<< "$found_files"
+      else
+        echo "Warning: Non-executable artifact ${ARTIFACT} not found in any target directory"
+      fi
+    done
+    
+    echo "Non-executable artifacts have been added to: ${{ inputs.BUILD_ARTIFACT }}.zip"
 
     - name: Upload the springboot jars
       if: ${{ !contains(github.ref, 'master') || !contains(github.ref, 'main') }}
