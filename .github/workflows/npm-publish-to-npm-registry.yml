@@ -17,64 +17,65 @@ on:
         required: false
         type: string
     secrets:
-      NPM_AUTH_TOKEN:
-        required: true
       SLACK_WEBHOOK_URL:
         required: true
 
 env:
   ANDROID_HOME: '/opt/android-sdk/'
 
+# 🔐 REQUIRED for npm Trusted Publishing (OIDC)
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   npm-publish-to-npm-registry:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v3.7.0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org/'
 
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
-          restore-keys: ${{ runner.os }}-gradle-
+      # npm >= 11.5.1 REQUIRED for trusted publishing
+      - name: Ensure latest npm
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
 
       - name: Cache npm dependencies
         uses: actions/cache@v4
         with:
-          path: '~/.npm'
+          path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-npm-
 
-      - name: NPM Install Dependencies
-        run: cd ${{ inputs.SERVICE_LOCATION }} && npm install
+      - name: Install dependencies
+        run: |
+          cd ${{ inputs.SERVICE_LOCATION }}
+          npm ci
 
       - name: Get version from package.json
-        id: version
         run: |
-          VERSION=$(node -p "require('${{ inputs.SERVICE_LOCATION }}/package.json').version")
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "Version extracted: $VERSION"
+          VERSION=$(node -p "require('./${{ inputs.SERVICE_LOCATION }}/package.json').version")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Version: $VERSION"
 
-      - name: Determine if it's a beta version
-        id: version_type
+      - name: Detect beta or main release
         run: |
-          VERSION_TYPE="main"
           if [[ "${{ env.VERSION }}" == *"-beta"* ]]; then
-            VERSION_TYPE="beta"
+            echo "VERSION_TYPE=beta" >> $GITHUB_ENV
+          else
+            echo "VERSION_TYPE=main" >> $GITHUB_ENV
           fi
-          echo "VERSION_TYPE=${VERSION_TYPE}" >> $GITHUB_ENV
-          echo "Version type: $VERSION_TYPE"
 
       - name: Build APK via Gradlew
         if: ${{ inputs.ANDROID_LOCATION != 'false' }}
@@ -84,34 +85,31 @@ jobs:
           chmod +x ./gradlew
           ./gradlew ${{ inputs.GRADLEW_ARGS }}
 
-      - name: Verify the build application
-        run: cd ${{ inputs.SERVICE_LOCATION }} && npm run verify
-
-      - name: Publish package
+      - name: Verify application
         run: |
+          cd ${{ inputs.SERVICE_LOCATION }}
+          npm run verify
+
+      # 🚀 PUBLISH — NO TOKEN REQUIRED
+      - name: Publish to npm
+        run: |
+          cd ${{ inputs.SERVICE_LOCATION }}
           if [[ "${{ env.VERSION_TYPE }}" == "beta" ]]; then
-            # Extract beta version suffix from version and append -beta.<run_number>
-            VERSION_SUFFIX="${{ env.VERSION }}-beta.${{ github.run_number }}"
-            echo "Publishing beta version: $VERSION_SUFFIX"
-            cd ${{ inputs.SERVICE_LOCATION }} && npm publish --access public --tag beta --force
+            npm publish --access public --tag beta
           else
-            # Publish as main version
-            echo "Publishing main version: ${{ env.VERSION }}"
-            cd ${{ inputs.SERVICE_LOCATION }} && npm publish --access public --force
+            npm publish --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
 
-      - name: Tag
+      - name: Create git tag
         run: |
-          VERSION_TAG="${{ env.VERSION_TYPE }}-${{ env.VERSION }}"
-          git tag $VERSION_TAG
-          git push origin $VERSION_TAG
+          TAG="${{ env.VERSION_TYPE }}-${{ env.VERSION }}"
+          git tag $TAG
+          git push origin $TAG
 
       - uses: 8398a7/action-slack@v3
+        if: failure()
         with:
           status: ${{ job.status }}
           fields: repo,message,author,commit,workflow,job
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        if: failure() # Slack notification on failure
